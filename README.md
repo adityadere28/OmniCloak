@@ -47,3 +47,59 @@ if err != nil {
 
 Partial masking is opt-in. High-risk fields (including CVV, raw PAN, track data,
 and credentials) are always dropped or fully redacted, never partially exposed.
+
+## Combined example
+
+This example validates a synthetic PAN, then sanitizes the payload before it is
+passed to an agent. The default mode drops sensitive fields; `ModeLast4` masks
+lower-risk PII while fully redacting the PAN.
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/adityadere28/OmniCloak/pkg/payment"
+	"github.com/adityadere28/OmniCloak/pkg/pii"
+)
+
+func main() {
+	pan := "4111111111111111" // Synthetic test PAN.
+	result, err := payment.ValidatePAN(pan, payment.PANOptions{DetectScheme: true})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !result.Valid {
+		log.Printf("PAN rejected: %s", result.Reason)
+		return
+	}
+	fmt.Printf("PAN accepted: scheme=%s non-loggable=%t\n",
+		result.Scheme, result.NonLoggable)
+
+	payload := map[string]any{
+		"card_pan": pan,
+		"phone":    "212-555-0100",
+		"status":   "approved",
+	}
+
+	sanitized, err := pii.SanitizeForAgent(payload, pii.Options{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Pass sanitized—not payload—to your agent. Default mode drops the PAN and phone.
+	fmt.Printf("Sanitized payload: %#v\n", sanitized)
+
+	masked, err := pii.SanitizeForAgent(payload, pii.Options{Mode: pii.ModeLast4})
+	if err != nil {
+		log.Fatal(err)
+	}
+	// ModeLast4 masks the phone but still fully redacts the high-risk PAN.
+	fmt.Printf("Masked payload: %#v\n", masked)
+}
+```
+
+The validation result contains no submitted value. Keep the original payload
+out of logs and agent calls; validators check format and checksums, not account
+ownership or authorization.
